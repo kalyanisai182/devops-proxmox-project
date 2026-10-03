@@ -1,0 +1,36 @@
+# ---------- Terraform ----------
+# Provider plugins downloaded by 'terraform init' (large, re-downloadable)
+.terraform/
+# State files: hold real infrastructure details and can contain secrets
+*.tfstate
+*.tfstate.*
+# Variable files with real values (API tokens, IPs). We'll commit an .example instead
+*.tfvars
+!*.tfvars.example
+# Crash logs and saved plan files
+crash.log
+*.tfplan
+
+# ---------- Ansible ----------
+*.retry
+# Vault password file must never be committed
+.vault_pass*
+
+# ---------- Kubernetes ----------
+# Cluster admin credentials
+kubeconfig
+*.kubeconfig
+
+# ---------- Java / Maven ----------
+target/
+*.class
+
+# ---------- Secrets & keys ----------
+*.pem
+*.key
+.env
+
+# ---------- Editors / OS ----------
+.vscode/
+.idea/
+.DS_Store
