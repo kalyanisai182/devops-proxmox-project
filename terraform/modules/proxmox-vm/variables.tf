@@ -5,8 +5,9 @@ variable "name" {
 }
 
 variable "vm_id" {
-  description = "Fixed Proxmox VM ID (stable identity; never auto-assigned)"
+  description = "Proxmox VM_ID. Leave null to let Proxmox assign the next free ID"
   type        = number
+  default     = null	
 }
 
 variable "node_name" {
