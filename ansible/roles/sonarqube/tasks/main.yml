@@ -1,0 +1,45 @@
+---
+# Elasticsearch (embedded in SonarQube) refuses to start without these
+- name: Set kernel parameters required by SonarQube
+  ansible.posix.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/99-sonarqube.conf
+    reload: true
+  loop:
+    - { name: vm.max_map_count, value: "524288" }
+    - { name: fs.file-max, value: "131072" }
+
+- name: Create SonarQube project directory
+  ansible.builtin.file:
+    path: "{{ sonarqube_dir }}"
+    state: directory
+    mode: "0750"
+
+- name: Write the database password to .env (root-only)
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ sonarqube_dir }}/.env"
+    mode: "0600"
+  no_log: true
+
+- name: Write docker-compose.yml
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ sonarqube_dir }}/docker-compose.yml"
+    mode: "0644"
+
+- name: Start SonarQube and PostgreSQL
+  community.docker.docker_compose_v2:
+    project_src: "{{ sonarqube_dir }}"
+    state: present
+    pull: missing
+
+- name: Wait until SonarQube reports status UP (first start takes a few minutes)
+  ansible.builtin.uri:
+    url: "http://localhost:{{ sonarqube_port }}/api/system/status"
+    return_content: true
+  register: sonar_status
+  until: sonar_status.json is defined and sonar_status.json.status == "UP"
+  retries: 40
+  delay: 10
