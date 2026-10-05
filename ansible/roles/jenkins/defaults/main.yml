@@ -1,0 +1,8 @@
+---
+jenkins_java_packages:
+  - fontconfig
+  - openjdk-21-jre-headless
+
+jenkins_repo_key_url: https://pkg.jenkins.io/debian-stable/jenkins.io-2026.key
+jenkins_repo: "deb [signed-by=/etc/apt/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/"
+jenkins_http_port: 8080

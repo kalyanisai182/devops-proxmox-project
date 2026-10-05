@@ -1,0 +1,63 @@
+---
+- name: Install Java 21 (must be present before Jenkins)
+  ansible.builtin.apt:
+    name: "{{ jenkins_java_packages }}"
+    state: present
+    update_cache: true
+
+- name: Download Jenkins repository signing key
+  ansible.builtin.get_url:
+    url: "{{ jenkins_repo_key_url }}"
+    dest: /etc/apt/keyrings/jenkins-keyring.asc
+    mode: "0644"
+
+- name: Add Jenkins LTS apt repository
+  ansible.builtin.apt_repository:
+    repo: "{{ jenkins_repo }}"
+    filename: jenkins
+    state: present
+
+- name: Install Jenkins
+  ansible.builtin.apt:
+    name: jenkins
+    state: present
+    update_cache: true
+
+# Lets pipelines run "docker build" / "docker push".
+- name: Add jenkins user to the docker group
+  ansible.builtin.user:
+    name: jenkins
+    groups: docker
+    append: true
+  notify: Restart jenkins
+
+- name: Ensure Jenkins is running and enabled at boot
+  ansible.builtin.service:
+    name: jenkins
+    state: started
+    enabled: true
+
+# Apply a pending restart now, so the port check below sees the final state
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for Jenkins to listen on its HTTP port
+  ansible.builtin.wait_for:
+    port: "{{ jenkins_http_port }}"
+    timeout: 300
+
+- name: Check whether the setup wizard is still pending
+  ansible.builtin.stat:
+    path: /var/lib/jenkins/secrets/initialAdminPassword
+  register: jenkins_init_pw_file
+
+- name: Read the initial admin password
+  ansible.builtin.slurp:
+    src: /var/lib/jenkins/secrets/initialAdminPassword
+  register: jenkins_init_pw
+  when: jenkins_init_pw_file.stat.exists
+
+- name: Show the initial admin password (one-time unlock code)
+  ansible.builtin.debug:
+    msg: "Unlock Jenkins at http://{{ ansible_host }}:{{ jenkins_http_port }} with: {{ jenkins_init_pw.content | b64decode | trim }}"
+  when: jenkins_init_pw_file.stat.exists
