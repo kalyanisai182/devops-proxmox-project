@@ -1,0 +1,6 @@
+---
+- name: Apply baseline configuration to all VMs
+  hosts: all
+  become: true
+  roles:
+    - common
