@@ -1,0 +1,3 @@
+---
+k8s_cluster_name: nonprod
+k8s_master_group: nonprod_master

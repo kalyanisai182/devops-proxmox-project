@@ -1,0 +1,91 @@
+---
+# ---------- 1. Initialize the control plane ----------
+- name: Get installed kubeadm version
+  ansible.builtin.command: kubeadm version -o short
+  register: kubeadm_version
+  changed_when: false
+
+- name: Write kubeadm config
+  ansible.builtin.template:
+    src: kubeadm-config.yaml.j2
+    dest: /etc/kubernetes/kubeadm-config.yaml
+    mode: "0600"
+
+- name: Initialize the control plane (runs only once)
+  ansible.builtin.command: kubeadm init --config /etc/kubernetes/kubeadm-config.yaml
+  args:
+    creates: "{{ k8s_admin_conf }}"
+
+- name: Set up kubectl for the ubuntu user
+  block:
+    - name: Create ~/.kube
+      ansible.builtin.file:
+        path: /home/ubuntu/.kube
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: "0700"
+
+    - name: Copy admin kubeconfig
+      ansible.builtin.copy:
+        src: "{{ k8s_admin_conf }}"
+        dest: /home/ubuntu/.kube/config
+        remote_src: true
+        owner: ubuntu
+        group: ubuntu
+        mode: "0600"
+
+# ---------- 2. Calico pod networking ----------
+- name: Check whether Calico is already installed
+  ansible.builtin.command: kubectl get namespace tigera-operator
+  environment:
+    KUBECONFIG: "{{ k8s_admin_conf }}"
+  register: calico_ns
+  failed_when: false
+  changed_when: false
+
+- name: Install Calico
+  when: calico_ns.rc != 0
+  environment:
+    KUBECONFIG: "{{ k8s_admin_conf }}"
+  block:
+    - name: Install Calico CRDs
+      ansible.builtin.command: >-
+        kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/v1_crd_projectcalico_org.yaml
+
+    - name: Install the Tigera operator
+      ansible.builtin.command: >-
+        kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/tigera-operator.yaml
+
+    - name: Wait for the operator's Installation CRD
+      ansible.builtin.command: >-
+        kubectl wait --for=condition=established --timeout=120s
+        crd/installations.operator.tigera.io
+
+    - name: Write Calico custom resources
+      ansible.builtin.template:
+        src: calico-resources.yaml.j2
+        dest: /etc/kubernetes/calico-resources.yaml
+        mode: "0644"
+
+    - name: Create Calico custom resources
+      ansible.builtin.command: kubectl create -f /etc/kubernetes/calico-resources.yaml
+
+# ---------- 3. Join command for this cluster's workers ----------
+- name: Generate a worker join command
+  ansible.builtin.command: kubeadm token create --print-join-command
+  register: join_cmd
+  changed_when: false
+  no_log: true
+
+- name: Save join command as a fact for the workers
+  ansible.builtin.set_fact:
+    k8s_join_command: "{{ join_cmd.stdout }}"
+  no_log: true
+
+# ---------- 4. Copy kubeconfig to R2S09 for later use ----------
+- name: Fetch admin kubeconfig to the control node
+  ansible.builtin.fetch:
+    src: "{{ k8s_admin_conf }}"
+    dest: "/root/.kube/{{ k8s_cluster_name }}.conf"
+    flat: true

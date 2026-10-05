@@ -1,0 +1,6 @@
+---
+- name: Join this worker to its cluster (runs only once)
+  ansible.builtin.command: "{{ hostvars[groups[k8s_master_group][0]].k8s_join_command }}"
+  args:
+    creates: /etc/kubernetes/kubelet.conf
+  no_log: true

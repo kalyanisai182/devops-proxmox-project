@@ -4,3 +4,25 @@
   become: true
   roles:
     - k8s_common
+
+- name: Initialize control planes and install Calico
+  hosts: k8s_masters
+  become: true
+  roles:
+    - k8s_master
+
+- name: Join workers to their cluster
+  hosts: k8s_workers
+  become: true
+  roles:
+    - k8s_worker
+
+- name: Wait for all nodes to become Ready
+  hosts: k8s_masters
+  become: true
+  tasks:
+    - name: Wait for every node in this cluster to be Ready
+      ansible.builtin.command: kubectl wait --for=condition=Ready nodes --all --timeout=600s
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      changed_when: false
