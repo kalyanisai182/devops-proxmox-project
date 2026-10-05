@@ -1,0 +1,6 @@
+---
+- name: Install Docker on CI servers
+  hosts: ci
+  become: true
+  roles:
+    - docker
