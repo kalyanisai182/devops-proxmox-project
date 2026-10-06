@@ -9,3 +9,5 @@ images:
     newTag: "9bc63d1"
 patches:
   - path: deployment-patch.yaml
+components:
+  - ../../components/monitoring
