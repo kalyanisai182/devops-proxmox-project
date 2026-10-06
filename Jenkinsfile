@@ -52,7 +52,7 @@ pipeline {
             steps {
                 withSonarQubeEnv('sonarqube') {
                     dir('app') {
-                        sh 'mvn -B -Dmaven.repo.local=$WORKSPACE/.m2/repository sonar:sonar -Dsonar.host.url=$SONAR_HOST_URL -Dsonar.token=$SONAR_AUTH_TOKEN'
+                        sh 'mvn -B -Dmaven.repo.local=$WORKSPACE/.m2/repository org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.host.url=$SONAR_HOST_URL -Dsonar.token=$SONAR_AUTH_TOKEN'
                     }
                 }
             }
