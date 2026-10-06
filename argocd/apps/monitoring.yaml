@@ -20,6 +20,9 @@ spec:
           service:
             type: NodePort
             nodePort: 30300
+          persistence:
+            inMemory:
+              enabled: true
           livenessProbe:
             httpGet:
               path: /api/health
