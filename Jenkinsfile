@@ -9,6 +9,7 @@ pipeline {
 
     environment {
         IMAGE_NAME = 'kalyanisai182/demo-app'
+        GIT_REPO   = 'github.com/kalyanisai182/devops-proxmox-project.git'
     }
 
     stages {
@@ -85,6 +86,32 @@ pipeline {
                 }
             }
         }
+
+        stage('Deploy to Dev (GitOps)') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'github-token',
+                                                  usernameVariable: 'GIT_USER',
+                                                  passwordVariable: 'GIT_TOKEN')]) {
+                    sh '''
+                        git config user.name  "jenkins-ci"
+                        git config user.email "jenkins-ci@devops.local"
+                        git fetch origin main
+                        git checkout -B main origin/main
+
+                        sed -i "s|newTag: .*|newTag: \\"$IMAGE_TAG\\"|" k8s/overlays/dev/kustomization.yaml
+
+                        if git diff --quiet; then
+                            echo "dev already runs $IMAGE_TAG, nothing to commit"
+                            exit 0
+                        fi
+
+                        git add k8s/overlays/dev/kustomization.yaml
+                        git commit -m "ci: deploy demo-app $IMAGE_TAG to dev"
+                        git push "https://$GIT_USER:$GIT_TOKEN@$GIT_REPO" HEAD:main
+                    '''
+                }
+            }
+        }
     }
 
     post {
@@ -93,7 +120,7 @@ pipeline {
             sh 'docker image rm $IMAGE_NAME:$IMAGE_TAG || true'
         }
         success {
-            echo "Pushed ${IMAGE_NAME}:${IMAGE_TAG}"
+            echo "Pushed ${IMAGE_NAME}:${IMAGE_TAG} and updated the dev overlay"
         }
     }
 }
