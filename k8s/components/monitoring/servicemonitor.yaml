@@ -12,3 +12,6 @@ spec:
     - port: http
       path: /actuator/prometheus
       interval: 30s
+      relabelings:
+        - targetLabel: application
+          replacement: demo-app
