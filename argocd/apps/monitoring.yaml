@@ -20,6 +20,19 @@ spec:
           service:
             type: NodePort
             nodePort: 30300
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 180
+            timeoutSeconds: 30
+            failureThreshold: 10
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
         prometheus:
           prometheusSpec:
             retention: 7d
