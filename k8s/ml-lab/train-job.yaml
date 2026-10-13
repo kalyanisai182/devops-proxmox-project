@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: train-script
+  namespace: ml-training
+data:
+  train.py: |
+    import json, os, time
+    import boto3
+    from botocore.config import Config
+    from botocore.exceptions import ClientError
+
+    s3 = boto3.client("s3", endpoint_url=os.environ["S3_ENDPOINT"],
+                      config=Config(s3={"addressing_style": "path"}))
+    BUCKET = os.environ["BUCKET"]
+    RUN = os.environ["RUN_ID"]
+    EPOCHS = int(os.environ["EPOCHS"])
+    SECS = int(os.environ["SECONDS_PER_EPOCH"])
+    CKPT = f"checkpoints/{RUN}/latest.json"
+
+    def load_checkpoint():
+        try:
+            obj = s3.get_object(Bucket=BUCKET, Key=CKPT)
+            return json.loads(obj["Body"].read())
+        except ClientError as e:
+            if e.response["Error"]["Code"] in ("NoSuchKey", "404"):
+                return None
+            raise
+
+    state = load_checkpoint()
+    if state:
+        start, weight = state["epoch"] + 1, state["weight"]
+        print(f"Resuming from checkpoint: epoch {state['epoch']}, loss={1 - weight:.4f}", flush=True)
+    else:
+        start, weight = 1, 0.0
+        print("No checkpoint found, starting from scratch", flush=True)
+
+    for epoch in range(start, EPOCHS + 1):
+        time.sleep(SECS)                      # stands in for a real training epoch
+        weight += (1.0 - weight) * 0.2        # toy "learning": loss shrinks each epoch
+        s3.put_object(Bucket=BUCKET, Key=CKPT, Body=json.dumps(
+            {"epoch": epoch, "weight": weight, "loss": 1 - weight, "ts": time.time()}).encode())
+        print(f"epoch {epoch}/{EPOCHS} loss={1 - weight:.4f} checkpoint saved", flush=True)
+
+    s3.put_object(Bucket=BUCKET, Key=f"models/{RUN}/model.json", Body=json.dumps(
+        {"run": RUN, "weight": weight, "final_loss": 1 - weight}).encode())
+    print("Training complete, model saved to models/" + RUN + "/model.json", flush=True)
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: train-demo
+  namespace: ml-training
+spec:
+  backoffLimit: 4
+  activeDeadlineSeconds: 1200
+  template:
+    metadata:
+      labels:
+        app: train-demo
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: trainer
+          image: python:3.12-slim
+          command: ["sh", "-c", "pip install -q boto3 && python /app/train.py"]
+          env:
+            - name: S3_ENDPOINT
+              value: http://10.30.5.20:8333
+            - name: BUCKET
+              value: ml-artifacts
+            - name: RUN_ID
+              value: demo-run
+            - name: EPOCHS
+              value: "20"
+            - name: SECONDS_PER_EPOCH
+              value: "10"
+            - name: AWS_DEFAULT_REGION
+              value: us-east-1
+          envFrom:
+            - secretRef:
+                name: s3-creds
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+          volumeMounts:
+            - name: script
+              mountPath: /app
+      volumes:
+        - name: script
+          configMap:
+            name: train-script
