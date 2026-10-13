@@ -1,0 +1,48 @@
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: seaweed-store
+  namespace: model-registry
+spec:
+  retentionPolicy: "7d"
+  configuration:
+    destinationPath: s3://pg-backups/
+    endpointURL: http://10.30.5.20:8333
+    s3Credentials:
+      accessKeyId:
+        name: s3-creds
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: s3-creds
+        key: ACCESS_SECRET_KEY
+    wal:
+      compression: gzip
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: registry-db
+  namespace: model-registry
+spec:
+  instances: 1
+  storage:
+    size: 2Gi
+    storageClass: local-path
+  bootstrap:
+    recovery:
+      source: origin
+      database: registry
+      owner: registry
+  externalClusters:
+    - name: origin
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: seaweed-store
+          serverName: registry-db
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: seaweed-store
+        serverName: registry-db-dr
