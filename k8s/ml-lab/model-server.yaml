@@ -1,0 +1,134 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: model-server
+  namespace: ml-serving
+data:
+  server.py: |
+    import json, os, threading, time
+    import boto3
+    from botocore.config import Config
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from urllib.parse import urlparse, parse_qs
+
+    MODEL = {}
+
+    def load_model():
+        time.sleep(int(os.environ.get("LOAD_DELAY_SECONDS", "0")))   # simulates downloading large weights
+        s3 = boto3.client("s3", endpoint_url=os.environ["S3_ENDPOINT"],
+                          config=Config(s3={"addressing_style": "path"}))
+        args = {"Bucket": os.environ["BUCKET"], "Key": os.environ["MODEL_KEY"]}
+        if os.environ.get("MODEL_VERSION_ID"):
+            args["VersionId"] = os.environ["MODEL_VERSION_ID"]
+        obj = s3.get_object(**args)
+        MODEL.update(json.loads(obj["Body"].read()))
+        MODEL["version_id"] = obj.get("VersionId")
+        print(f"Model loaded: run={MODEL['run']} version={MODEL['version_id']} weight={MODEL['weight']:.4f}", flush=True)
+
+    class Handler(BaseHTTPRequestHandler):
+        def send_json(self, code, body):
+            data = json.dumps(body).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_GET(self):
+            url = urlparse(self.path)
+            if url.path == "/healthz":
+                return self.send_json(200, {"status": "alive"})
+            if url.path == "/ready":
+                return self.send_json(200 if MODEL else 503, {"model_loaded": bool(MODEL)})
+            if url.path == "/predict":
+                if not MODEL:
+                    return self.send_json(503, {"error": "model not loaded"})
+                x = float(parse_qs(url.query).get("x", ["1"])[0])
+                return self.send_json(200, {
+                    "input": x, "prediction": round(x * MODEL["weight"], 4),
+                    "model_run": MODEL["run"], "model_version": MODEL["version_id"],
+                    "pod": os.environ.get("HOSTNAME")})
+            self.send_json(404, {"error": "not found"})
+
+        def log_message(self, *args):
+            pass
+
+    threading.Thread(target=load_model, daemon=True).start()
+    print("Server listening on :8080, loading model in background", flush=True)
+    ThreadingHTTPServer(("", 8080), Handler).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model-server
+  namespace: ml-serving
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: model-server
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: model-server
+    spec:
+      containers:
+        - name: server
+          image: python:3.12-slim
+          command: ["sh", "-c", "pip install -q --root-user-action=ignore boto3 && python /app/server.py"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: S3_ENDPOINT
+              value: http://10.30.5.20:8333
+            - name: BUCKET
+              value: ml-artifacts
+            - name: MODEL_KEY
+              value: models/demo-run/model.json
+            - name: MODEL_VERSION_ID
+              value: "6721da8f4b182d8308ac72002bed20e9"
+            - name: LOAD_DELAY_SECONDS
+              value: "15"
+            - name: AWS_DEFAULT_REGION
+              value: us-east-1
+          envFrom:
+            - secretRef:
+                name: s3-creds
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 5
+            failureThreshold: 24
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /ready, port: http }
+            periodSeconds: 3
+          resources:
+            requests: { cpu: 50m, memory: 96Mi }
+            limits: { cpu: 300m, memory: 256Mi }
+          volumeMounts:
+            - name: app
+              mountPath: /app
+      volumes:
+        - name: app
+          configMap:
+            name: model-server
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-server
+  namespace: ml-serving
+spec:
+  selector:
+    app: model-server
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
