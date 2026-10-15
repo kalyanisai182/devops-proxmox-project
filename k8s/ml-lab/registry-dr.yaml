@@ -46,3 +46,18 @@ spec:
       parameters:
         barmanObjectName: seaweed-store
         serverName: registry-db-dr
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: registry-nightly
+  namespace: model-registry
+spec:
+  schedule: "0 0 2 * * *"
+  immediate: true
+  backupOwnerReference: self
+  cluster:
+    name: registry-db
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
