@@ -6,7 +6,7 @@ resources:
   - ../../base
 images:
   - name: kalyanisai182/demo-app
-    newTag: "3c4720d"
+    newTag: "0498419"
 patches:
   - path: deployment-patch.yaml
 components:
